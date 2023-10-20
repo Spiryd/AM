@@ -4,3 +4,5 @@
 target/
 *.csv
 *.lock
+routes/
+plots/

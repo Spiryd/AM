@@ -4,11 +4,12 @@ use std::path::Path;
 
 use rand::prelude::*;
 use rand_pcg::Pcg64;
+use serde_pickle::SerOptions;
 
 type Point = (f32, f32);
 
 fn main() {
-    let mut weight_file = File::create("./data/weights.csv").unwrap();
+    let mut weight_file = File::create("./weights.csv").unwrap();
     weight_file.write_all(b"map;mst_weight;dfs_weight;a_avg;b_avg;random_min\n").unwrap();
 
     let paths = fs::read_dir("test_data/").unwrap();
@@ -36,9 +37,11 @@ fn main() {
         let mst = parent_to_adj_list(&parent);
         //println!("{:?}", &mst);
         let traversal = dfs(&mst);
-        let mut dfs_file = File::create(format!("./data/dfs_{point_count}_route.txt")).unwrap();
-        dfs_file.write_all(format!("{:?}", traversal.iter().map(|x| points[*x]).collect::<Vec<Point>>()).as_bytes()).unwrap();
         //println!("{:?}", &traversal);
+
+        let mut dfs_file = File::create(format!("./routes/dfs_{point_count}_route.bin")).unwrap();
+        serde_pickle::to_writer(&mut dfs_file, &traversal.iter().map(|x| points[*x]).collect::<Vec<Point>>(), SerOptions::new()).unwrap();
+
         let dfs_weight = weight_traversal(&traversal, &adj_matrix);
         //println!("{:?}", &dfs_weight);
 
@@ -64,10 +67,10 @@ fn main() {
             b_avg += *perms.iter().min().unwrap() as f64;
         }
         b_avg /= 20.;
-        let min = weights.iter().enumerate().max_by_key(|&(_, item)| item).unwrap();
-
-        let mut rand_file = File::create(format!("./data/rand_{point_count}_route.txt")).unwrap();
-        rand_file.write_all(format!("{:?}", permutations[min.0].iter().map(|x| points[*x]).collect::<Vec<Point>>()).as_bytes()).unwrap();
+        let min = weights.iter().enumerate().min_by_key(|&(_, item)| item).unwrap();
+        
+        let mut rand_file = File::create(format!("./routes/rand_{point_count}_route.bin")).unwrap();
+        serde_pickle::to_writer(&mut rand_file, &permutations[min.0].iter().map(|x| points[*x]).collect::<Vec<Point>>(), SerOptions::new()).unwrap();
         
         weight_file.write_all(format!("{point_count};{mst_weight};{dfs_weight};{a_avg};{b_avg};{}\n", min.1).as_bytes()).unwrap();
     }
