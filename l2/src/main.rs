@@ -12,11 +12,12 @@ fn main() {
         //println!("{:?}", points);
         let mut adj_matrix = vec![vec![u32::MAX; point_count]; point_count];
         for i in 0..point_count {
-            for j in i..point_count  {
+            for j in i..point_count {
                 if j != i {
                     let p1 = points[i];
                     let p2 = points[j];
-                    let dist = (((p1.0 - p2.0).powi(2) + (p1.1 - p2.1).powi(2)).sqrt()).round() as u32;
+                    let dist =
+                        (((p1.0 - p2.0).powi(2) + (p1.1 - p2.1).powi(2)).sqrt()).round() as u32;
                     adj_matrix[i][j] = dist;
                     adj_matrix[j][i] = dist;
                 }
@@ -30,22 +31,25 @@ fn main() {
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
-where P: AsRef<Path> {
+where
+    P: AsRef<Path>,
+{
     let file = File::open(filename)?;
     Ok(io::BufReader::new(file).lines())
 }
 
-fn file_to_points<P>(filename: P) -> Vec<Point> 
-where P: AsRef<Path> {
+fn file_to_points<P>(filename: P) -> Vec<Point>
+where
+    P: AsRef<Path>,
+{
     let mut points: Vec<Point> = Vec::new();
     if let Ok(lines) = read_lines(filename) {
         for line in lines.skip(8).flatten() {
-            if line == "EOF"{
+            if line == "EOF" {
                 break;
             }
             let tmp = line.split_whitespace().collect::<Vec<&str>>();
             points.push((tmp[1].parse().unwrap(), tmp[2].parse().unwrap()));
-        
         }
     }
     points
@@ -86,7 +90,7 @@ fn min_key(key: &[u32], mst_set: &[bool], point_count: usize) -> usize {
 
 fn parent_to_adj_list(parent: &Vec<usize>) -> Vec<Vec<usize>> {
     let mut adj_list: Vec<Vec<usize>> = vec![Vec::new(); parent.len()];
-    for (u,v) in parent.iter().enumerate().skip(1) {
+    for (u, v) in parent.iter().enumerate().skip(1) {
         adj_list[u].push(*v);
         adj_list[*v].push(u);
     }
