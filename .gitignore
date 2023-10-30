@@ -6,3 +6,5 @@ target/
 *.lock
 routes/
 plots/
+vendor/
+.cargo/
