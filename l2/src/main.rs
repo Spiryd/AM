@@ -2,6 +2,10 @@ use std::fs::{self, File};
 use std::io::{self, BufRead};
 use std::path::Path;
 
+use rand::SeedableRng;
+use rand_pcg::Pcg64;
+use rand::prelude::*;
+
 type Point = (f32, f32);
 
 fn main() {
@@ -27,6 +31,22 @@ fn main() {
         //println!("{:?}", &parent);
         let mst = parent_to_adj_list(&parent);
         //println!("{:?}", &mst);
+        let mut rng = Pcg64::from_entropy();
+        for _ in 0..((point_count as f32).sqrt() as usize) {
+            let start = rng.gen_range(0..point_count);
+            let mut permutation = dfs_from_point(&mst, start);
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+            permutation = local_search(&mut permutation, &adj_matrix);
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+        }
+
+        let mut permutation: Vec<usize> = (0..point_count).collect();
+        for _ in 0..point_count{
+            permutation.shuffle(&mut rng);
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+            permutation = local_search(&mut permutation, &adj_matrix);
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+        }
     }
 }
 
@@ -95,4 +115,66 @@ fn parent_to_adj_list(parent: &Vec<usize>) -> Vec<Vec<usize>> {
         adj_list[*v].push(u);
     }
     adj_list
+}
+
+fn dfs_from_point(graph: &[Vec<usize>], start: usize) -> Vec<usize>{
+    let mut visited: Vec<usize> = Vec::new();
+    let mut traversal: Vec<usize> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    visited.push(start);
+    stack.push(start);
+    while let Some(node) = stack.pop() {
+        traversal.push(node);
+        for j in &graph[node] {
+            if !visited.contains(j) {
+                visited.push(*j);
+                stack.push(*j);
+            }
+        }
+    }
+    //println!("{:?}", traversal);
+    traversal
+}
+
+fn local_search( permutation: &mut Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
+    let length = permutation.len();
+    let mut curr_weight = permutation_weight(permutation, adj_matrix);
+    let mut curr = permutation.clone();
+    loop {
+        let mut neighborhood: Vec<Vec<usize>> = Vec::new();
+        let mut i = 0;
+        for j in (0..length).step_by(10).skip(1) {
+            neighborhood.push(invert(&mut curr, i, j));
+            i = j;
+        }
+        let weights = neighborhood.iter().map(|x| permutation_weight(x, adj_matrix));
+        let candidate = neighborhood.iter().zip(weights).min_by(|a, b| a.1.cmp(&b.1)).unwrap();
+        if candidate.1 >= curr_weight {
+            break;
+        }
+        curr = candidate.0.clone();
+        curr_weight = candidate.1;
+
+    }
+    curr
+}
+
+fn invert(permutation: &mut [usize], mut i: usize, mut j: usize) -> Vec<usize>{
+    let mut permutation = permutation.to_owned();
+    while i != j && j > i {
+        permutation.swap(i, j);
+        i += 1;
+        j -= 1;
+    }
+    permutation
+}
+
+fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<u32>]) -> u64 {
+    let mut s: u64 = 0;
+    let mut prev = 0;
+    for cur in permutation.iter().skip(1) {
+        s += adj_matrix[prev][*cur] as u64;
+        prev = *cur;
+    }
+    s
 }
