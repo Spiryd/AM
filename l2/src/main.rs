@@ -1,7 +1,9 @@
 use std::fs::{self, File};
 use std::io::{self, BufRead};
 use std::path::Path;
+use std::thread;
 
+use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use rand::prelude::*;
@@ -36,16 +38,42 @@ fn main() {
             let start = rng.gen_range(0..point_count);
             let mut permutation = dfs_from_point(&mst, start);
             //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-            permutation = local_search(&mut permutation, &adj_matrix);
+            permutation = local_search(permutation.clone(), &adj_matrix);
             //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
         }
 
         let mut permutation: Vec<usize> = (0..point_count).collect();
+        let mut handles = Vec::new();
         for _ in 0..point_count{
             permutation.shuffle(&mut rng);
+            let permutation = permutation.clone();
+            let adj_matrix =  adj_matrix.clone();
             //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-            permutation = local_search(&mut permutation, &adj_matrix);
+            let handle = thread::spawn(move || {
+                let p = local_search(permutation, &adj_matrix);
+            });
+            handles.push(handle);
             //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let mut handles = Vec::new();
+        for _ in 0..point_count{
+            permutation.shuffle(&mut rng);
+            let permutation = permutation.clone();
+            let adj_matrix =  adj_matrix.clone();
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+            let handle = thread::spawn(move || {
+                //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+                let p = faster_local_search(permutation, &adj_matrix);
+                //println!("{:?}", permutation_weight(&p, &adj_matrix));
+            });
+            handles.push(handle);
+            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+        }
+        for handle in handles {
+            handle.join().unwrap();
         }
     }
 }
@@ -132,21 +160,14 @@ fn dfs_from_point(graph: &[Vec<usize>], start: usize) -> Vec<usize>{
             }
         }
     }
-    //println!("{:?}", traversal);
     traversal
 }
 
-fn local_search( permutation: &mut Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
-    let length = permutation.len();
-    let mut curr_weight = permutation_weight(permutation, adj_matrix);
+fn local_search( permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
+    let mut curr_weight = permutation_weight(&permutation, adj_matrix);
     let mut curr = permutation.clone();
     loop {
-        let mut neighborhood: Vec<Vec<usize>> = Vec::new();
-        let mut i = 0;
-        for j in (0..length).step_by(10).skip(1) {
-            neighborhood.push(invert(&mut curr, i, j));
-            i = j;
-        }
+        let neighborhood: Vec<Vec<usize>> = get_neighborhood(&curr);
         let weights = neighborhood.iter().map(|x| permutation_weight(x, adj_matrix));
         let candidate = neighborhood.iter().zip(weights).min_by(|a, b| a.1.cmp(&b.1)).unwrap();
         if candidate.1 >= curr_weight {
@@ -154,12 +175,41 @@ fn local_search( permutation: &mut Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<u
         }
         curr = candidate.0.clone();
         curr_weight = candidate.1;
-
     }
     curr
 }
 
-fn invert(permutation: &mut [usize], mut i: usize, mut j: usize) -> Vec<usize>{
+fn faster_local_search( permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
+    let mut curr_weight = permutation_weight(&permutation, adj_matrix);
+    let mut curr = permutation.clone();
+    let mut rng = Pcg64::from_entropy();
+    loop {
+        let neighborhood: Vec<Vec<usize>> = get_neighborhood(&curr);
+        let neighborhood = neighborhood.iter().choose_multiple(&mut rng, permutation.len());
+        let weights = neighborhood.iter().map(|x| permutation_weight(x, adj_matrix));
+        let candidate = neighborhood.iter().zip(weights).min_by(|a, b| a.1.cmp(&b.1)).unwrap();
+        if candidate.1 >= curr_weight {
+            break;
+        }
+        curr = candidate.0.to_vec();
+        curr_weight = candidate.1;
+    }
+    curr
+}
+
+
+fn get_neighborhood(permutation: &Vec<usize>) -> Vec<Vec<usize>> {
+    let mut neighborhood: Vec<Vec<usize>> = Vec::new();
+    let length = permutation.len();
+    for diff in 1..length {
+        for i in diff..length {
+            neighborhood.push(invert(permutation.clone(), i-diff, i));
+        }
+    }
+    neighborhood
+}
+
+fn invert(permutation: Vec<usize>, mut i: usize, mut j: usize) -> Vec<usize>{
     let mut permutation = permutation.to_owned();
     while i != j && j > i {
         permutation.swap(i, j);
@@ -176,5 +226,6 @@ fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<u32>]) -> u64 {
         s += adj_matrix[prev][*cur] as u64;
         prev = *cur;
     }
+    //s += *adj_matrix[0].last().unwrap() as u64;
     s
 }
