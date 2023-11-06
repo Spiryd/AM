@@ -1,6 +1,7 @@
 use std::fs::{self, File};
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use rand::seq::IteratorRandom;
@@ -11,11 +12,12 @@ use rand::prelude::*;
 type Point = (f32, f32);
 
 fn main() {
+    let mut weight_file = File::create("./ls.csv").unwrap();
+    weight_file.write_all(b"map;mst_weight;dfs_steps;dfs_mean;dfs_min;random_steps;random_mean;random_min;mod_random_steps;mod_random_mean;mod_random_min\n").unwrap();
     let paths = fs::read_dir("test_data/").unwrap();
     for path in paths {
         let points = file_to_points(path.unwrap().path());
         let point_count = points.len();
-        //println!("{:?}", points);
         let mut adj_matrix = vec![vec![u32::MAX; point_count]; point_count];
         for i in 0..point_count {
             for j in i..point_count {
@@ -29,53 +31,108 @@ fn main() {
                 }
             }
         }
+
         let parent = prim(&adj_matrix, point_count);
-        //println!("{:?}", &parent);
         let mst = parent_to_adj_list(&parent);
-        //println!("{:?}", &mst);
+        let mst_weight = mst_weight(&parent, &adj_matrix);
+        let mut dfs_min = u64::MAX;
+        let mut dfs_mean = 0_u64;
+        let mut dfs_steps = 0_usize;
         let mut rng = Pcg64::from_entropy();
         for _ in 0..((point_count as f32).sqrt() as usize) {
             let start = rng.gen_range(0..point_count);
-            let mut permutation = dfs_from_point(&mst, start);
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-            permutation = local_search(permutation.clone(), &adj_matrix);
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+            let permutation = dfs_from_point(&mst, start);
+            let (p, counter) = local_search(permutation.clone(), &adj_matrix);
+            let w = permutation_weight(&p, &adj_matrix);
+            dfs_mean += w;
+            dfs_steps += counter;
+            if dfs_min > w {
+                dfs_min = w;
+            }
         }
+        let dfs_mean = dfs_mean as f64 / (point_count as f64).sqrt();
+        let dfs_steps = dfs_steps as f64 / (point_count as f64).sqrt();
 
+        let random_min  = Arc::new(Mutex::new(u64::MAX));
+        let random_mean = Arc::new(Mutex::new(0_u64));
         let mut permutation: Vec<usize> = (0..point_count).collect();
-        let mut handles = Vec::new();
-        for _ in 0..point_count{
-            permutation.shuffle(&mut rng);
-            let permutation = permutation.clone();
-            let adj_matrix =  adj_matrix.clone();
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-            let handle = thread::spawn(move || {
-                let p = local_search(permutation, &adj_matrix);
-            });
-            handles.push(handle);
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
+        let random_steps = Arc::new(Mutex::new(0_usize));
+        
+        for _ in 0..(point_count/10){
+            let mut handles = vec![];
+            for _ in 0..10 {
+                permutation.shuffle(&mut rng);
+                let random_steps = Arc::clone(&random_steps);
+                let random_mean = Arc::clone(&random_mean);
+                let random_min = Arc::clone(&random_min);
+                let permutation = permutation.clone();
+                let adj_matrix =  adj_matrix.clone();
+                let handle = thread::spawn(move || {
+                    let (p, counter) = local_search(permutation, &adj_matrix);
+                    let w = permutation_weight(&p, &adj_matrix);
+                    let mut c = random_steps.lock().unwrap();
+                    *c += counter;
+                    let mut me = random_mean.lock().unwrap();
+                    *me += w;
+                    let mut mi = random_min.lock().unwrap();
+                    if *mi > w {
+                        *mi = w;
+                    }
+                });
+                handles.push(handle);
+            }
+            for handle in handles {
+                handle.join().unwrap();
+            }
         }
-        for handle in handles {
-            handle.join().unwrap();
+        let random_mean = *random_mean.lock().unwrap() as f64 / point_count as f64;
+        let random_steps = *random_steps.lock().unwrap() as f64 / point_count as f64;
+        let random_min = *random_min.lock().unwrap();
+
+        let mod_random_min  = Arc::new(Mutex::new(u64::MAX));
+        let mod_random_mean = Arc::new(Mutex::new(0_u64));
+        let mut permutation: Vec<usize> = (0..point_count).collect();
+        let mod_random_steps = Arc::new(Mutex::new(0_usize));
+        for _ in 0..(point_count/10){
+            let mut handles = vec![];
+            for _ in 0..10 {
+                permutation.shuffle(&mut rng);
+                let mod_random_steps = Arc::clone(&mod_random_steps);
+                let mod_random_mean = Arc::clone(&mod_random_mean);
+                let mod_random_min = Arc::clone(&mod_random_min);
+                let permutation = permutation.clone();
+                let adj_matrix =  adj_matrix.clone();
+                let handle = thread::spawn(move || {
+                    let (p, counter) = faster_local_search(permutation, &adj_matrix);
+                    let w = permutation_weight(&p, &adj_matrix);
+                    let mut c = mod_random_steps.lock().unwrap();
+                    *c += counter;
+                    let mut me = mod_random_mean.lock().unwrap();
+                    *me += w;
+                    let mut mi = mod_random_min.lock().unwrap();
+                    if *mi > w {
+                        *mi = w;
+                    }
+                });
+                handles.push(handle);
+            }
+            for handle in handles {
+                handle.join().unwrap();
+            }
         }
-        let mut handles = Vec::new();
-        for _ in 0..point_count{
-            permutation.shuffle(&mut rng);
-            let permutation = permutation.clone();
-            let adj_matrix =  adj_matrix.clone();
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-            let handle = thread::spawn(move || {
-                //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-                let p = faster_local_search(permutation, &adj_matrix);
-                //println!("{:?}", permutation_weight(&p, &adj_matrix));
-            });
-            handles.push(handle);
-            //println!("{:?}", permutation_weight(&permutation, &adj_matrix));
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
+        let mod_random_mean = *mod_random_mean.lock().unwrap() as f64 / point_count as f64;
+        let mod_random_steps = *mod_random_steps.lock().unwrap() as f64 / point_count as f64;
+        let mod_random_min = *mod_random_min.lock().unwrap();
+        weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min};{random_steps};{random_mean};{random_min};{mod_random_steps};{mod_random_mean};{mod_random_min}\n").as_bytes()).unwrap();
     }
+}
+
+fn mst_weight(tree: &Vec<usize>, adj_matrix: &[Vec<u32>]) -> u64 {
+    let mut s: u64 = 0;
+    for i in 1..(tree.len()) {
+        s += adj_matrix[i][tree[i]] as u64
+    }
+    s
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -163,50 +220,85 @@ fn dfs_from_point(graph: &[Vec<usize>], start: usize) -> Vec<usize>{
     traversal
 }
 
-fn local_search( permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
+fn local_search( permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> (Vec<usize>, usize){
     let mut curr_weight = permutation_weight(&permutation, adj_matrix);
     let mut curr = permutation.clone();
+    let mut counter = 0;
     loop {
-        let neighborhood: Vec<Vec<usize>> = get_neighborhood(&curr);
-        let weights = neighborhood.iter().map(|x| permutation_weight(x, adj_matrix));
-        let candidate = neighborhood.iter().zip(weights).min_by(|a, b| a.1.cmp(&b.1)).unwrap();
-        if candidate.1 >= curr_weight {
+        counter += 1;
+        let neighborhood: Vec<(usize, usize, u64)> = get_neighborhood(&curr, adj_matrix);
+        let candidate = neighborhood.iter().min_by(|a, b| a.2.cmp(&b.2)).unwrap();
+        if candidate.2 >= curr_weight {
             break;
         }
-        curr = candidate.0.clone();
-        curr_weight = candidate.1;
+        curr = invert(curr, candidate.0, candidate.1);
+        curr_weight = candidate.2;
     }
-    curr
+    (curr, counter)
 }
 
-fn faster_local_search( permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<usize>{
+fn faster_local_search(permutation: Vec<usize>, adj_matrix: &[Vec<u32>]) -> (Vec<usize>, usize) {
     let mut curr_weight = permutation_weight(&permutation, adj_matrix);
     let mut curr = permutation.clone();
-    let mut rng = Pcg64::from_entropy();
+    let mut counter = 0;
     loop {
-        let neighborhood: Vec<Vec<usize>> = get_neighborhood(&curr);
-        let neighborhood = neighborhood.iter().choose_multiple(&mut rng, permutation.len());
-        let weights = neighborhood.iter().map(|x| permutation_weight(x, adj_matrix));
-        let candidate = neighborhood.iter().zip(weights).min_by(|a, b| a.1.cmp(&b.1)).unwrap();
-        if candidate.1 >= curr_weight {
+        counter += 1;
+        let neighborhood: Vec<(usize, usize, u64)> = get_faster_neighborhood(&curr, adj_matrix);
+        let candidate = neighborhood.iter().min_by(|a, b| a.2.cmp(&b.2)).unwrap();
+        if candidate.2 >= curr_weight {
             break;
         }
-        curr = candidate.0.to_vec();
-        curr_weight = candidate.1;
+        curr = invert(curr, candidate.0, candidate.1);
+        curr_weight = candidate.2;
     }
-    curr
+    (curr, counter)
 }
 
-
-fn get_neighborhood(permutation: &Vec<usize>) -> Vec<Vec<usize>> {
-    let mut neighborhood: Vec<Vec<usize>> = Vec::new();
+fn get_neighborhood(permutation: &Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<(usize, usize, u64)> {
+    let mut neighborhood: Vec<(usize, usize, u64)> = Vec::new();
     let length = permutation.len();
-    for diff in 1..length {
-        for i in diff..length {
-            neighborhood.push(invert(permutation.clone(), i-diff, i));
+    let weight  =  permutation_weight(permutation, adj_matrix);
+    for diff in 1..(length-1) {
+        for j in diff..length {
+            neighborhood.push((j-diff, j, invert_weight(permutation, adj_matrix, j-diff, j, weight)));
         }
     }
     neighborhood
+}
+
+fn get_faster_neighborhood(permutation: &Vec<usize>, adj_matrix: &[Vec<u32>]) -> Vec<(usize, usize, u64)> {
+    let mut neighborhood: Vec<(usize, usize, u64)> = Vec::new();
+    let length = permutation.len();
+    let weight  =  permutation_weight(permutation, adj_matrix);
+    let mut candidates = Vec::new();
+    let mut rng = Pcg64::from_entropy();
+    for diff in 1..(length-1) {
+        for j in diff..length {
+            candidates.push((j-diff, j));
+        }
+    }
+    for (i, j) in candidates.iter().choose_multiple(&mut rng, length) {
+        neighborhood.push((*i, *j, invert_weight(permutation, adj_matrix, *i, *j, weight)));
+    }
+    neighborhood
+}
+
+fn invert_weight(permutation: &Vec<usize>, adj_matrix: &[Vec<u32>], i:usize, j:usize, weight: u64) -> u64 {
+    let last = permutation.len() - 1;
+    if i == 0 {
+        let (sub1, add1) = (adj_matrix[permutation[last]][permutation[0]] as u64, adj_matrix[permutation[last]][permutation[j]] as u64);
+        let (sub2, add2) = (adj_matrix[permutation[j]][permutation[j+1]] as u64, adj_matrix[permutation[last]][permutation[j]] as u64);
+        weight - sub1 - sub2 + add1 + add2
+    } else if j == last {
+        let (sub1, add1) = (adj_matrix[permutation[i-1]][permutation[i]] as u64, adj_matrix[permutation[i]][permutation[0]] as u64);
+        let (sub2, add2) = (adj_matrix[permutation[last]][permutation[0]] as u64, adj_matrix[permutation[0]][permutation[i]] as u64);
+        weight - sub1 - sub2 + add1 + add2
+    } else {
+        let (sub1, add1) = (adj_matrix[permutation[i-1]][permutation[i]] as u64, adj_matrix[permutation[i]][permutation[j+1]] as u64);
+        let (sub2, add2) = (adj_matrix[permutation[j]][permutation[j+1]] as u64, adj_matrix[permutation[i-1]][permutation[j]] as u64);
+         weight - sub1 - sub2 + add1 + add2
+    }
+    
 }
 
 fn invert(permutation: Vec<usize>, mut i: usize, mut j: usize) -> Vec<usize>{
@@ -226,6 +318,6 @@ fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<u32>]) -> u64 {
         s += adj_matrix[prev][*cur] as u64;
         prev = *cur;
     }
-    //s += *adj_matrix[0].last().unwrap() as u64;
+    s += *adj_matrix[0].last().unwrap() as u64;
     s
 }
