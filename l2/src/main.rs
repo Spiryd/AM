@@ -13,8 +13,10 @@ fn main() {
     let mut weight_file = File::create("./ls.csv").unwrap();
     weight_file.write_all(b"map;mst_weight;dfs_steps;dfs_mean;dfs_min;random_steps;random_mean;random_min;mod_random_steps;mod_random_mean;mod_random_min\n").unwrap();
     let paths = fs::read_dir("test_data/").unwrap();
-    for path in paths {
-        let points = file_to_points(path.unwrap().path());
+    //for path in paths {
+    for path in ["test_data/c.tsp", "test_data/d.tsp", "test_data/e.tsp", "test_data/f.tsp"] {
+        //let points = file_to_points(path.unwrap().path());
+        let points = file_to_points(path);
         let point_count = points.len();
         let adj_matrix = points_to_matrix(points);
         let parent = prim(&adj_matrix, point_count);
@@ -25,7 +27,8 @@ fn main() {
         let mut dfs_mean = 0_u64;
         let mut dfs_steps = 0_usize;
         let mut rng = Pcg64::from_entropy();
-        for _ in 0..((point_count as f32).sqrt() as usize) {
+        //for _ in 0..((point_count as f32).sqrt() as usize) {
+        for _ in 0..100 {
             let start = rng.gen_range(0..point_count);
             let permutation = dfs_from_point(&mst, start);
             let (_p, counter, w) = local_search(permutation.clone(), &adj_matrix);
@@ -37,18 +40,17 @@ fn main() {
         }
         let dfs_mean = dfs_mean as f64 / (point_count as f64).sqrt();
         let dfs_steps = dfs_steps as f64 / (point_count as f64).sqrt();
-
-        /*
+        
         let mut random_min = u64::MAX;
         let mut random_mean = 0_u64;
         let mut permutation: Vec<usize> = (0..point_count).collect();
         let mut random_steps = 0_usize;
-        for _ in 0..point_count {
+        //for _ in 0..point_count {
+        for _ in 0..100 {
             permutation.shuffle(&mut rng);
             //println!("local search start");
-            let (p, counter) = local_search(permutation.clone(), &adj_matrix);
+            let (_p, counter, w) = local_search(permutation.clone(), &adj_matrix);
             //println!("local search end");
-            let w = permutation_weight(&p, &adj_matrix);
             random_steps += counter;
             random_mean += w;
             if random_min > w {
@@ -58,12 +60,13 @@ fn main() {
         println!("random end");
         let random_mean = random_mean as f64 / point_count as f64;
         let random_steps = random_steps as f64 / point_count as f64;
-         */
+        
         let mut mod_random_min = u64::MAX;
         let mut mod_random_mean = 0_u64;
         let mut permutation: Vec<usize> = (0..point_count).collect();
         let mut mod_random_steps = 0_usize;
-        for _ in 0..point_count {
+        //for _ in 0..point_count {
+        for _ in 0..100 {
             permutation.shuffle(&mut rng);
             //println!("local search start");
             let (_p, counter, w) = faster_local_search(permutation.clone(), &adj_matrix);
@@ -76,8 +79,11 @@ fn main() {
         }
         let mod_random_mean = mod_random_mean as f64 / point_count as f64;
         let mod_random_steps = mod_random_steps as f64 / point_count as f64;
-        //weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min};{random_steps};{random_mean};{random_min};{mod_random_steps};{mod_random_mean};{mod_random_min}\n").as_bytes()).unwrap();
-        weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min};{mod_random_steps};{mod_random_mean};{mod_random_min}\n").as_bytes()).unwrap();
+        
+        weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min};{random_steps};{random_mean};{random_min};{mod_random_steps};{mod_random_mean};{mod_random_min}\n").as_bytes()).unwrap();
+        //weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min};{mod_random_steps};{mod_random_mean};{mod_random_min}\n").as_bytes()).unwrap();
+        //weight_file.write_all(format!("{point_count};{mst_weight};{dfs_steps};{dfs_mean};{dfs_min}\n").as_bytes()).unwrap();
+
     }
 }
 
@@ -180,9 +186,10 @@ fn local_search(permutation: Vec<usize>, adj_matrix: &[Vec<u64>]) -> (Vec<usize>
     let mut counter = 0;
     loop {
         counter += 1;
-        let neighborhood: Vec<(usize, usize, u64)> =
-            get_neighborhood(&curr, adj_matrix, curr_weight);
-        let candidate = neighborhood.iter().min_by_key(|x| x.2).unwrap();
+        let neighborhood: Vec<(usize, usize, u64)> = get_neighborhood(&curr, adj_matrix, curr_weight
+        );
+        let candidate = neighborhood.iter().min_by_key(|a| a.2).unwrap();
+        //let candidate = get_candidate(&permutation, adj_matrix, curr_weight);
         //println!("exp:{:?} got:{:?}", permutation_weight(&invert(curr.clone(), candidate.0, candidate.1), adj_matrix), candidate.2);
         if candidate.2 >= curr_weight {
             break;
@@ -203,7 +210,7 @@ fn faster_local_search(permutation: Vec<usize>, adj_matrix: &[Vec<u64>]) -> (Vec
     loop {
         counter += 1;
         let neighborhood: Vec<(usize, usize, u64)> = get_faster_neighborhood(&curr, adj_matrix);
-        let candidate = neighborhood.iter().min_by(|a, b| a.2.cmp(&b.2)).unwrap();
+        let candidate = neighborhood.iter().min_by_key(|a| a.2).unwrap();
         if candidate.2 >= curr_weight {
             break;
         }
@@ -220,7 +227,7 @@ fn get_neighborhood(
 ) -> Vec<(usize, usize, u64)> {
     let mut neighborhood: Vec<(usize, usize, u64)> = Vec::new();
     let length = permutation.len();
-    for diff in 1..(length - 1) {
+    for diff in 1..(length/2) {
         for j in diff..length {
             neighborhood.push((
                 j - diff,
@@ -241,7 +248,7 @@ fn get_faster_neighborhood(
     let weight = permutation_weight(permutation, adj_matrix);
     let mut candidates = Vec::new();
     let mut rng = Pcg64::from_entropy();
-    for diff in 1..(length - 1) {
+    for diff in 1..(length/2) {
         for j in diff..length {
             candidates.push((j - diff, j));
         }
@@ -271,7 +278,7 @@ fn invert_weight(
 
 fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<u64>]) -> u64 {
     let mut s: u64 = 0;
-    let mut prev = 0;
+    let mut prev = permutation[0];
     for cur in permutation.iter().skip(1) {
         s += adj_matrix[prev][*cur] as u64;
         prev = *cur;
@@ -282,7 +289,7 @@ fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<u64>]) -> u64 {
 
 fn points_to_matrix(points: Vec<(f32, f32)>) -> Vec<Vec<u64>> {
     let point_count = points.len();
-    let mut adj_matrix: Vec<Vec<u64>> = vec![vec![u64::MAX; point_count]; point_count];
+    let mut adj_matrix: Vec<Vec<u64>> = vec![vec![0; point_count]; point_count];
     for i in 0..point_count {
         for j in i..point_count {
             if j != i {
@@ -294,6 +301,7 @@ fn points_to_matrix(points: Vec<(f32, f32)>) -> Vec<Vec<u64>> {
             }
         }
     }
+    //println!("{:?}", adj_matrix);
     adj_matrix
 }
 
@@ -305,9 +313,9 @@ mod tests {
     #[test]
     fn first_task_test() {
         for path in [
-            "test_data/131.tsp",
-            "test_data/237.tsp",
-            "test_data/343.tsp",
+            "test_data/1.tsp",
+            "test_data/2.tsp",
+            "test_data/3.tsp",
         ] {
             let points = file_to_points(path);
             let point_count = points.len();
@@ -337,9 +345,9 @@ mod tests {
     #[test]
     fn second_task_test() {
         for path in [
-            "test_data/131.tsp",
-            "test_data/237.tsp",
-            "test_data/343.tsp",
+            "test_data/1.tsp",
+            "test_data/2.tsp",
+            "test_data/3.tsp",
         ] {
             let points = file_to_points(path);
             let point_count = points.len();
@@ -368,9 +376,9 @@ mod tests {
     #[test]
     fn third_task_test() {
         for path in [
-            "test_data/131.tsp",
-            "test_data/237.tsp",
-            "test_data/343.tsp",
+            "test_data/1.tsp",
+            "test_data/2.tsp",
+            "test_data/3.tsp",
         ] {
             let points = file_to_points(path);
             let point_count = points.len();
