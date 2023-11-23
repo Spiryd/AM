@@ -12,7 +12,7 @@ type Point = (f32, f32);
 fn main() {
     let mut weight_file = File::create("./ls.csv").unwrap();
     weight_file.write_all(b"map;mst_weight;dfs_steps;dfs_mean;dfs_min;random_steps;random_mean;random_min;mod_random_steps;mod_random_mean;mod_random_min\n").unwrap();
-    let paths = fs::read_dir("test_data/").unwrap();
+    //let paths = fs::read_dir("test_data/").unwrap();
     //for path in paths {
     for path in ["test_data/c.tsp", "test_data/d.tsp", "test_data/e.tsp", "test_data/f.tsp"] {
         //let points = file_to_points(path.unwrap().path());
