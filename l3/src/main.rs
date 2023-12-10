@@ -1,8 +1,9 @@
+use std::collections::{HashSet, BinaryHeap};
 use std::f64::consts::E;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::usize;
+use std::{usize, clone};
 
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
@@ -29,12 +30,84 @@ fn main() {
         let adj_matrix = points_to_matrix(points);
         let sa = simulated_annealing(&adj_matrix, point_count);
         println!("SA: {:?}", sa.1);
+        let ts = tabu_search(&adj_matrix);
+        println!("TS: {:?}", ts.1);
     }
 }
 
-fn tabu_search() {
-    todo!()
+fn tabu_search(adj_matrix: &[Vec<usize>]) -> (Vec<usize>, usize) {
+    let point_count = adj_matrix.len();
+    let mut curr = get_random_permmutation(point_count);
+    let mut curr_weight: usize = permutation_weight(&curr, adj_matrix);
+    let mut best: Vec<usize> = curr.clone();
+    let mut best_weight: usize = curr_weight;
+    let capacity = adj_matrix.len();
+    let mut tabu_list: HashSet<Vec<usize>> = HashSet::with_capacity(capacity); 
+    tabu_list.insert(curr.clone());
+    while tabu_list.len() < capacity {
+        let neighborhood: BinaryHeap<Neighour> = get_neighborhood(&curr, adj_matrix, curr_weight);
+        for candidate in neighborhood {
+            if !tabu_list.contains(&candidate.rep) {
+                if best_weight > candidate.weight {
+                    best = candidate.rep.clone();
+                    best_weight = candidate.weight;
+                }
+                tabu_list.insert(candidate.rep.clone());
+                curr = candidate.rep;
+                curr_weight = candidate.weight;
+                break;
+            }
+        }
+    }
+    (best, best_weight)
 }
+
+#[derive(Ord, Eq)]
+struct Neighour {
+    rep: Vec<usize>,
+    weight: usize,
+}
+impl PartialEq for Neighour {
+    fn eq(&self, other: &Self) -> bool {
+        self.weight == other.weight
+    }
+}
+impl PartialOrd for Neighour {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        other.weight.partial_cmp(&self.weight)
+    }
+}
+
+fn get_neighborhood(
+    permutation: &Vec<usize>,
+    adj_matrix: &[Vec<usize>],
+    weight: usize,
+) -> BinaryHeap<Neighour> {
+    let mut neighborhood: BinaryHeap<Neighour> = BinaryHeap::new();
+    let length = permutation.len();
+    for diff in 1..(length/2) {
+        for j in diff..length {
+            let mut rep = permutation.clone();
+            rep[(j - diff)..=j].reverse();
+            neighborhood.push(Neighour{rep, weight: invert_weight(permutation, adj_matrix, j - diff, j, weight)});
+        }
+    }
+    neighborhood
+}
+
+fn invert_weight(
+    permutation: &Vec<usize>,
+    adj_matrix: &[Vec<usize>],
+    i: usize,
+    j: usize,
+    weight: usize,
+) -> usize {
+    let last = permutation.len() - 1;
+    let pre = i.checked_sub(1).unwrap_or(last);
+    let post = (j + 1) % permutation.len();
+    weight - adj_matrix[permutation[i]][permutation[pre]] - adj_matrix[permutation[j]][permutation[post]] + adj_matrix[permutation[j]][permutation[pre]] + adj_matrix[permutation[i]][permutation[post]]
+}
+
 
 fn simulated_annealing(adj_matrix: &[Vec<usize>], mut temperature: usize) -> (Vec<usize>, usize) {
     let point_count = adj_matrix.len();
@@ -43,7 +116,7 @@ fn simulated_annealing(adj_matrix: &[Vec<usize>], mut temperature: usize) -> (Ve
     println!("SEED SOLUTION: {:?}", &current_weight);
     let mut rng = Pcg64::from_entropy();
     while temperature != 0 {
-        for _epoch in 0..(1000) {
+        for _epoch in 0..(10_000) {
             let swap_idx = (0..point_count).choose_multiple(&mut Pcg64::from_entropy(), 2);
             let mut potential_solution = solution.clone();
             potential_solution.swap(swap_idx[0], swap_idx[1]);
