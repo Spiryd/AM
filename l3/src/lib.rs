@@ -1,51 +1,28 @@
-use std::collections::{HashSet, BinaryHeap};
+use std::collections::HashSet;
 use std::f64::consts::E;
-use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::Path;
-use std::{usize, clone};
+use std::usize;
 
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use rand::{prelude::*, Rng};
 use rand_pcg::Pcg64;
 
-type Point = (f32, f32);
+pub type Point = (f32, f32);
 
-fn main() {
-    for path in [
-        "test_data/1.tsp",
-        "test_data/2.tsp",
-        "test_data/3.tsp",
-        "test_data/4.tsp",
-        "test_data/5.tsp",
-        "test_data/6.tsp",
-        "test_data/7.tsp",
-        "test_data/8.tsp",
-        "test_data/9.tsp",
-        "test_data/a.tsp",
-    ] {
-        let points = file_to_points(path);
-        let point_count = points.len();
-        let adj_matrix = points_to_matrix(points);
-        let sa = simulated_annealing(&adj_matrix, point_count);
-        println!("SA: {:?}", sa.1);
-        let ts = tabu_search(&adj_matrix);
-        println!("TS: {:?}", ts.1);
-    }
-}
-
-fn tabu_search(adj_matrix: &[Vec<usize>]) -> (Vec<usize>, usize) {
+pub fn tabu_search(adj_matrix: &[Vec<usize>], tabu_capacity: usize) -> (Vec<usize>, usize) {
     let point_count = adj_matrix.len();
     let mut curr = get_random_permmutation(point_count);
     let mut curr_weight: usize = permutation_weight(&curr, adj_matrix);
     let mut best: Vec<usize> = curr.clone();
     let mut best_weight: usize = curr_weight;
-    let capacity = adj_matrix.len();
-    let mut tabu_list: HashSet<Vec<usize>> = HashSet::with_capacity(capacity); 
+    let mut tabu_list: HashSet<Vec<usize>> = HashSet::with_capacity(tabu_capacity); 
     tabu_list.insert(curr.clone());
-    while tabu_list.len() < capacity {
-        let neighborhood: BinaryHeap<Neighour> = get_neighborhood(&curr, adj_matrix, curr_weight);
+    while tabu_list.len() < tabu_capacity {
+        let mut neighborhood = get_neighborhood(&curr, adj_matrix, curr_weight);
+        neighborhood.sort_by_key(|x| x.weight);
         for candidate in neighborhood {
             if !tabu_list.contains(&candidate.rep) {
                 if best_weight > candidate.weight {
@@ -62,7 +39,7 @@ fn tabu_search(adj_matrix: &[Vec<usize>]) -> (Vec<usize>, usize) {
     (best, best_weight)
 }
 
-#[derive(Ord, Eq)]
+#[derive(Eq)]
 struct Neighour {
     rep: Vec<usize>,
     weight: usize,
@@ -74,7 +51,16 @@ impl PartialEq for Neighour {
 }
 impl PartialOrd for Neighour {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        other.weight.partial_cmp(&self.weight)
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Neighour {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.partial_cmp(other) {
+            Some(x) => x,
+            None => panic!("Something went wrong"),
+        }
+        
     }
 }
 
@@ -82,9 +68,9 @@ fn get_neighborhood(
     permutation: &Vec<usize>,
     adj_matrix: &[Vec<usize>],
     weight: usize,
-) -> BinaryHeap<Neighour> {
-    let mut neighborhood: BinaryHeap<Neighour> = BinaryHeap::new();
+) -> Vec<Neighour> {
     let length = permutation.len();
+    let mut neighborhood: Vec<Neighour> = Vec::new();
     for diff in 1..(length/2) {
         for j in diff..length {
             let mut rep = permutation.clone();
@@ -109,22 +95,18 @@ fn invert_weight(
 }
 
 
-fn simulated_annealing(adj_matrix: &[Vec<usize>], mut temperature: usize) -> (Vec<usize>, usize) {
+pub fn simulated_annealing(adj_matrix: &[Vec<usize>], mut temperature: usize, epoch_count: usize) -> (Vec<usize>, usize) {
     let point_count = adj_matrix.len();
     let mut solution = get_random_permmutation(point_count);
     let mut current_weight = permutation_weight(&solution, adj_matrix);
-    println!("SEED SOLUTION: {:?}", &current_weight);
     let mut rng = Pcg64::from_entropy();
     while temperature != 0 {
-        for _epoch in 0..(10_000) {
-            let swap_idx = (0..point_count).choose_multiple(&mut Pcg64::from_entropy(), 2);
+        for _epoch in 0..epoch_count {
+            let swap_idx = (0..point_count).choose_multiple(&mut rng, 2);
             let mut potential_solution = solution.clone();
             potential_solution.swap(swap_idx[0], swap_idx[1]);
             let potenital_weight = permutation_weight(&potential_solution, adj_matrix);
-            if potenital_weight < current_weight {
-                current_weight = potenital_weight;
-                solution = potential_solution;
-            } else if rng.gen_bool(E.powf((current_weight as f64 - potenital_weight as f64) / temperature as f64)) {
+            if potenital_weight < current_weight || rng.gen_bool(E.powf((current_weight as f64 - potenital_weight as f64) / temperature as f64)) {
                 current_weight = potenital_weight;
                 solution = potential_solution;
             }
@@ -140,7 +122,7 @@ fn get_random_permmutation(point_count: usize) -> Vec<usize> {
     permutation
 }
 
-fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+pub fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
 {
@@ -148,7 +130,7 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
-fn file_to_points<P>(filename: P) -> Vec<Point>
+pub fn file_to_points<P>(filename: P) -> Vec<Point>
 where
     P: AsRef<Path>,
 {
@@ -165,7 +147,7 @@ where
     points
 }
 
-fn points_to_matrix(points: Vec<(f32, f32)>) -> Vec<Vec<usize>> {
+pub fn points_to_matrix(points: Vec<(f32, f32)>) -> Vec<Vec<usize>> {
     let point_count = points.len();
     let mut adj_matrix: Vec<Vec<usize>> = vec![vec![0; point_count]; point_count];
     for i in 0..point_count {
@@ -183,14 +165,14 @@ fn points_to_matrix(points: Vec<(f32, f32)>) -> Vec<Vec<usize>> {
     adj_matrix
 }
 
-fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<usize>]) -> usize {
+pub fn permutation_weight(permutation: &[usize], adj_matrix: &[Vec<usize>]) -> usize {
     let mut s: usize = 0;
     let mut prev = permutation[0];
     for cur in permutation.iter().skip(1) {
-        s += adj_matrix[prev][*cur] as usize;
+        s += adj_matrix[prev][*cur];
         prev = *cur;
     }
-    s += *adj_matrix[0].last().unwrap() as usize;
+    s += *adj_matrix[0].last().unwrap();
     s
 }
 
@@ -204,18 +186,16 @@ mod tests {
             let points = file_to_points(path);
             let point_count = points.len();
             let adj_matrix = points_to_matrix(points);
-            let sa = simulated_annealing(&adj_matrix, point_count);
-            println!("SA: {:?}", sa.1);
+            let _sa = simulated_annealing(&adj_matrix, point_count, 1000);
         }
     }
     #[test]
     fn ts_test() {
         for path in ["test_data/1.tsp", "test_data/2.tsp", "test_data/3.tsp"] {
             let points = file_to_points(path);
-            let point_count = points.len();
+            let l = points.len();
             let adj_matrix = points_to_matrix(points);
-            todo!()
-            //tabu_search();
+            let _x = tabu_search(&adj_matrix, l);
         }
     }
 }
