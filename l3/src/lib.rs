@@ -111,7 +111,7 @@ pub fn simulated_annealing(adj_matrix: &[Vec<usize>], mut temperature: usize, ep
                 solution = potential_solution;
             }
         }
-        temperature -= 1;
+        temperature = (temperature as f64 * 0.94) as usize;
     }
     (solution, current_weight)
 }
