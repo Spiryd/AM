@@ -20,7 +20,8 @@ pub fn tabu_search(adj_matrix: &[Vec<usize>], tabu_capacity: usize) -> (Vec<usiz
     let mut best_weight: usize = curr_weight;
     let mut tabu_list: HashSet<Vec<usize>> = HashSet::with_capacity(tabu_capacity); 
     tabu_list.insert(curr.clone());
-    while tabu_list.len() < tabu_capacity {
+    let mut nobetter  = 0;
+    while nobetter >= 200 || tabu_list.len() >= tabu_capacity {
         let mut neighborhood = get_neighborhood(&curr, adj_matrix, curr_weight);
         neighborhood.sort_by_key(|x| x.weight);
         for candidate in neighborhood {
@@ -30,6 +31,11 @@ pub fn tabu_search(adj_matrix: &[Vec<usize>], tabu_capacity: usize) -> (Vec<usiz
                     best_weight = candidate.weight;
                 }
                 tabu_list.insert(candidate.rep.clone());
+                if curr_weight > candidate.weight {
+                    nobetter += 1;
+                } else {
+                    nobetter = 0;
+                }
                 curr = candidate.rep;
                 curr_weight = candidate.weight;
                 break;
@@ -39,7 +45,7 @@ pub fn tabu_search(adj_matrix: &[Vec<usize>], tabu_capacity: usize) -> (Vec<usiz
     (best, best_weight)
 }
 
-#[derive(Eq)]
+#[derive(Eq, Clone)]
 struct Neighour {
     rep: Vec<usize>,
     weight: usize,

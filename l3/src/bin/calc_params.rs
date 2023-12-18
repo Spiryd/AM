@@ -49,7 +49,7 @@ fn main() {
         }
         println!("{:?}", results_sa.iter().min_by_key(|x| x.3).unwrap());
         let mut results_ts: Vec<(usize, usize, usize, f64)> = Vec::new();
-        for tabu in 1..=32{
+        for tabu in 1..=32 {
             let mut handles = Vec::new();
             let time_acc: Arc<Mutex<f64>> = Arc::new(Mutex::new(0.0));
             let weight_acc: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
